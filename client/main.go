@@ -25,7 +25,7 @@ func main() {
 	}
 
 	for {
-		fmt.Print("Enter command (message/guess/exit): ")
+		fmt.Print("Enter command (message/guess/exit/download): ")
 		command, _ := reader.ReadString('\n')
 		command = strings.TrimSpace(command)
 
@@ -33,6 +33,11 @@ func main() {
 			break
 		} else if command == "guess" {
 			startGuessingGame(conn, sessionKey, reader)
+		} else if strings.HasPrefix(command, "download ") {
+			filename := strings.TrimPrefix(command, "download ")
+			formattedRequest := fmt.Sprintf("%s_DOWNLOAD:%s\n", sessionKey, filename)
+			fmt.Fprintf(conn, formattedRequest)
+			ReceiveFile(conn, "received_"+filename, sessionKey)
 		} else {
 			sendMessage(conn, sessionKey, command)
 		}
