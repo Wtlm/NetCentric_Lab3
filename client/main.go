@@ -1,15 +1,40 @@
 package main
 
-import "fmt"
+import (
+	"bufio"
+	"fmt"
+	"net"
+	"os"
+	"strings"
+)
 
 func main() {
-	client := NewGameClient()
-	err := client.Connect("127.0.0.1:8080")
+	conn, err := net.Dial("tcp", "localhost:8080")
 	if err != nil {
 		fmt.Println("Error connecting to server:", err)
 		return
 	}
-	defer client.Close()
+	defer conn.Close()
 
-	client.StartGame()
+	reader := bufio.NewReader(os.Stdin)
+
+	// Authenticate User
+	sessionKey, success := authenticateUser(conn, reader)
+	if !success {
+		return
+	}
+
+	for {
+		fmt.Print("Enter command (message/guess/exit): ")
+		command, _ := reader.ReadString('\n')
+		command = strings.TrimSpace(command)
+
+		if command == "exit" {
+			break
+		} else if command == "guess" {
+			startGuessingGame(conn, sessionKey, reader)
+		} else {
+			sendMessage(conn, sessionKey, command)
+		}
+	}
 }

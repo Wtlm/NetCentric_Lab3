@@ -3,8 +3,11 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
-	"os"
+	"errors"
+	"io/ioutil"
+	"math/rand"
 	"sync"
+	"time"
 )
 
 // User represents a user in the system
@@ -19,57 +22,56 @@ type User struct {
 	} `json:"addresses"`
 }
 
-// UserManager handles user authentication operations
-type UserManager struct {
-	users map[string]User
-	mutex sync.RWMutex
+type AuthManager struct {
+	users    []User
+	sessions map[string]int
+	mu       sync.Mutex
 }
 
-// NewUserManager creates a new UserManager instance
-func NewUserManager() *UserManager {
-	return &UserManager{
-		users: make(map[string]User),
+// NewAuthManager initializes and loads users
+func NewAuthManager(userFile string) (*AuthManager, error) {
+	manager := &AuthManager{
+		sessions: make(map[string]int),
 	}
-}
 
-// LoadUsers reads users from a JSON file
-func (um *UserManager) LoadUsers(filename string) error {
-	um.mutex.Lock()
-	defer um.mutex.Unlock()
-
-	// Read existing users
-	file, err := os.ReadFile(filename)
+	data, err := ioutil.ReadFile(userFile)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return json.Unmarshal(file, &um.users)
+	if err := json.Unmarshal(data, &manager.users); err != nil {
+		return nil, err
+	}
+
+	return manager, nil
 }
 
-// SaveUsers writes users to a JSON file
-func (um *UserManager) SaveUsers(filename string) error {
-	um.mutex.RLock()
-	defer um.mutex.RUnlock()
+// Authenticate checks username and password and assigns a session key
+func (am *AuthManager) Authenticate(username, password string) (int, error) {
+	encodedPassword := base64.StdEncoding.EncodeToString([]byte(password))
 
-	data, err := json.MarshalIndent(um.users, "", "  ")
-	if err != nil {
-		return err
+	am.mu.Lock()
+	defer am.mu.Unlock()
+
+	for _, user := range am.users {
+		if user.Username == username && user.Password == encodedPassword {
+			// Generate session key
+			rand.Seed(time.Now().UnixNano())
+			sessionKey := rand.Intn(1000) + 1
+
+			// Store session key
+			am.sessions[username] = sessionKey
+			return sessionKey, nil
+		}
 	}
-
-	return os.WriteFile(filename, data, 0644)
+	return 0, errors.New("authentication failed")
 }
 
-// Authenticate checks user credentials
-func (um *UserManager) Authenticate(username, password string) bool {
-	um.mutex.RLock()
-	defer um.mutex.RUnlock()
+// ValidateSession checks if a given session key is valid
+func (am *AuthManager) ValidateSession(username string, sessionKey int) bool {
+	am.mu.Lock()
+	defer am.mu.Unlock()
 
-	user, exists := um.users[username]
-	if !exists {
-		return false
-	}
-
-	// Simple password comparison (use secure hashing in production)
-	decodedPassword, _ := base64.StdEncoding.DecodeString(user.Password)
-	return string(decodedPassword) == password
+	expectedKey, exists := am.sessions[username]
+	return exists && expectedKey == sessionKey
 }
