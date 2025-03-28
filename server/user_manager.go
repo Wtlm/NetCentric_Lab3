@@ -4,8 +4,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"io/ioutil"
 	"math/rand"
+	"os"
 	"sync"
 	"time"
 )
@@ -34,7 +34,7 @@ func NewAuthManager(userFile string) (*AuthManager, error) {
 		sessions: make(map[string]int),
 	}
 
-	data, err := ioutil.ReadFile(userFile)
+	data, err := os.ReadFile(userFile)
 	if err != nil {
 		return nil, err
 	}
