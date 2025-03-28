@@ -1,0 +1,14 @@
+{
+  "hado": {
+    "username": "hado",
+    "password": "aGFkbzEyMw==",
+    "full_name": "Ha Do",
+    "emails": ["hado@gmail.com"],
+    "addresses": [
+      {
+        "type": "University",
+        "address": "IU"
+      }
+    ]
+  }
+}
