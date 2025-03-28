@@ -25,7 +25,7 @@ func main() {
 	}
 
 	for {
-		fmt.Print("Enter command (message/guess/exit/download): ")
+		fmt.Print("Enter command (message/guess/download +[filename]/exit): ")
 		command, _ := reader.ReadString('\n')
 		command = strings.TrimSpace(command)
 

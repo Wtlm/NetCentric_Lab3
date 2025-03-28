@@ -10,18 +10,5 @@
         "address": "IU"
       }
     ]
-  },
-
-  {
-    "username": "chanh",
-    "password": "123abc==",
-    "full_name": "Chung Anh",
-    "emails": ["chanh@gmail.com"],
-    "addresses": [
-      {
-        "type": "University",
-        "address": "IU"
-      }
-    ]
   }
 ]
