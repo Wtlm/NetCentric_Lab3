@@ -3,9 +3,27 @@ package main
 import (
 	"fmt"
 	"net"
+	"sync"
 )
 
+type Word struct {
+	Word        string `json:"word"`
+	Description string `json:"description"`
+	HiddenWord  []rune
+}
+
+type Game struct {
+	Word  Word
+	Score map[net.Conn]int
+	Mutex sync.Mutex
+}
+
 const userFile = "users.json"
+const wordFile = "words.json"
+
+var gameMutex sync.Mutex
+var userManager *AuthManager
+var gameSessions = make(map[string]*GameSession)
 
 func main() {
 	var err error

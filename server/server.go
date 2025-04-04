@@ -5,16 +5,10 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
-)
-
-var (
-	userManager  *AuthManager
-	gameSessions = make(map[string]*GameSession)
-	gameMutex    sync.Mutex
 )
 
 func handleClient(conn net.Conn) {
@@ -86,13 +80,28 @@ func handleClient(conn net.Conn) {
 			conn.Write([]byte(fmt.Sprintf("%s\n", response)))
 			if response == "start" {
 				gameMutex.Lock()
+
 				if !session.gameStarted {
 					session.gameStarted = true
+					// Load words and start the game
+					words, err := loadWords(wordFile)
+					if err != nil {
+						conn.Write([]byte("Error loading words\n"))
+						return
+					}
+					session.game = createGame(words)
 					gameMutex.Unlock()
+
 					broadcastMessage(session, "Game starting!\n")
+					broadcastMessage(session, fmt.Sprintf("Game started! Description: %s\nThis word has %d letters: %s\n",
+						session.game.Word.Description,
+						len(strings.ReplaceAll(session.game.Word.Word, " ", "")),
+						string(session.game.Word.HiddenWord)))
+
 					for _, player := range session.players {
 						go handleGame(session, player)
 					}
+
 				} else {
 					gameMutex.Unlock()
 				}
@@ -117,12 +126,17 @@ func handleGame(session *GameSession, conn net.Conn) {
 			break // Exit if no players left
 		}
 
+		if session.Completed {
+			session.mu.Unlock()
+			return
+		}
+
 		activePlayer := session.players[session.turn]
 		session.mu.Unlock()
 
 		// Notify the current player it's their turn
 		if activePlayer == conn {
-			conn.Write([]byte("Your turn! Enter a message:\n"))
+			conn.Write([]byte("Your turn! Enter a letter:\n"))
 			reader := bufio.NewReader(conn)
 			message, err := reader.ReadString('\n')
 
@@ -133,10 +147,22 @@ func handleGame(session *GameSession, conn net.Conn) {
 			}
 
 			message = strings.TrimSpace(message)
+			message = strings.ToUpper(message)
 
 			if message == "quit" {
 				conn.Write([]byte("Goodbye!\n"))
 				removePlayerFromSession(session, conn)
+				return
+			}
+
+			if err := processGuess(message, session.game, conn, session); err != nil {
+				conn.Write([]byte(err.Error()))
+			}
+			if session.Completed {
+				broadcastMessage(session, fmt.Sprint("Game Over\n"))
+				for numPlayer, player := range session.players {
+					broadcastMessage(session, fmt.Sprintf("Score of Player %d: %d\n", numPlayer+1, session.game.Score[player]))
+				}
 				return
 			}
 
@@ -149,6 +175,44 @@ func handleGame(session *GameSession, conn net.Conn) {
 			session.mu.Unlock()
 		}
 	}
+}
+
+func processGuess(guess string, game *Game, conn net.Conn, session *GameSession) error {
+	if guess == "" {
+		return fmt.Errorf("Invalid guess.\n")
+	}
+	letter := rune(guess[0])
+	game.Mutex.Lock()
+	defer game.Mutex.Unlock()
+
+	// Check if the letter was already guessed
+	if isLetterAlreadyGuessed(letter, game) {
+		conn.Write([]byte(fmt.Sprintf("This letter is already guessed . Try another one.\nWord: %s\n", string(game.Word.HiddenWord))))
+		return nil
+	}
+
+	found, count := false, 0
+	for i, ch := range game.Word.Word {
+		if ch == letter && game.Word.HiddenWord[i] == '_' {
+			game.Word.HiddenWord[i] = ch
+			found = true
+			count++
+		}
+	}
+
+	if found {
+		game.Score[conn] += 10 * count
+		conn.Write([]byte(fmt.Sprintf("Good guess! +%d points\n", 10*count)))
+		broadcastMessage(session, fmt.Sprintf("Word: %s\n", string(game.Word.HiddenWord)))
+
+		if !strings.ContainsRune(string(game.Word.HiddenWord), '_') {
+			session.Completed = true
+		}
+	} else {
+		conn.Write([]byte("Wrong guess! Waiting for your next turn...\n"))
+		time.Sleep(3 * time.Second)
+	}
+	return nil
 }
 
 func broadcastMessage(session *GameSession, message string) {
@@ -183,4 +247,9 @@ func removePlayerFromSession(session *GameSession, conn net.Conn) {
 		// If players are left, notify them
 		broadcastMessage(session, "A player has left. The game continues.")
 	}
+}
+
+// Check if the letter has already been guessed
+func isLetterAlreadyGuessed(letter rune, game *Game) bool {
+	return slices.Contains(game.Word.HiddenWord, letter)
 }

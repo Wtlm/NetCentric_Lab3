@@ -34,6 +34,8 @@ type GameSession struct {
 	turn        int
 	gameStarted bool
 	mu          sync.Mutex
+	game        *Game
+	Completed   bool
 }
 
 // NewAuthManager initializes and loads users

@@ -1,47 +1,50 @@
 package main
 
 import (
-	"crypto/rand"
-	"math/big"
+	"encoding/json"
+	"math/rand"
+	"net"
+	"os"
+	"time"
 )
 
-// Game represents a single guessing game instance
-type Game struct {
-	targetNumber int
-	attempts     int
-}
-
-// NewGame creates a new game instance
-func NewGame() Game {
-	// Cryptographically secure random number generation
-	n, _ := rand.Int(rand.Reader, big.NewInt(100))
-	return Game{
-		targetNumber: int(n.Int64()) + 1,
-		attempts:     0,
+// Load words from file
+func loadWords(filename string) ([]Word, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
 	}
-}
+	defer file.Close()
 
-// ProcessGuess evaluates a player's guess
-func (g *Game) ProcessGuess(guess int) (string, bool) {
-	g.attempts++
-
-	if guess < g.targetNumber {
-		return "TOO_LOW", false
-	} else if guess > g.targetNumber {
-		return "TOO_HIGH", false
-	} else {
-		return "CORRECT", true
+	var words []Word
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&words); err != nil {
+		return nil, err
 	}
+	return words, nil
 }
 
-// GetAttempts returns the number of attempts made
-func (g *Game) GetAttempts() int {
-	return g.attempts
-}
+// Create a new game session
+func createGame(words []Word) *Game {
+	rand.Seed(time.Now().UnixNano())
+	selectedWord := words[rand.Intn(len(words))]
 
-// Reset resets the game to a new state
-func (g *Game) Reset() {
-	n, _ := rand.Int(rand.Reader, big.NewInt(100))
-	g.targetNumber = int(n.Int64()) + 1
-	g.attempts = 0
+	// Initialize hidden word with underscores but preserve spaces
+	hiddenWord := make([]rune, len(selectedWord.Word))
+	for i, char := range selectedWord.Word {
+		if char == ' ' {
+			hiddenWord[i] = ' '
+		} else {
+			hiddenWord[i] = '_'
+		}
+	}
+
+	return &Game{
+		Word: Word{
+			Word:        selectedWord.Word,
+			Description: selectedWord.Description,
+			HiddenWord:  hiddenWord,
+		},
+		Score: make(map[net.Conn]int),
+	}
 }
