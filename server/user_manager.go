@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math/rand"
+	"net"
 	"os"
 	"sync"
 	"time"
@@ -26,6 +27,13 @@ type AuthManager struct {
 	users    []User
 	sessions map[string]int
 	mu       sync.Mutex
+}
+
+type GameSession struct {
+	players     []net.Conn
+	turn        int
+	gameStarted bool
+	mu          sync.Mutex
 }
 
 // NewAuthManager initializes and loads users

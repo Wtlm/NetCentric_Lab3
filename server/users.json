@@ -10,5 +10,41 @@
         "address": "IU"
       }
     ]
+  },
+  {
+    "username": "chanh",
+    "password": "Y2hhbmgxMjM=", 
+    "full_name": "Chung Anh",
+    "emails": ["chanh@gmail.com"],
+    "addresses": [
+      {
+        "type": "University",
+        "address": "IU"
+      }
+    ]
+  },
+  {
+    "username": "superman",
+    "password": "c3VwZXJtYW4xMjM=",
+    "full_name": "Sieu Nhan",
+    "emails": ["superman@gmail.com"],
+    "addresses": [
+      {
+        "type": "University",
+        "address": "IU"
+      }
+    ]
+  },
+  {
+    "username": "meomeo",
+    "password": "bWVvbWVvMTIz",
+    "full_name": "Meo Meo",
+    "emails": ["meomeo@gmail.com"],
+    "addresses": [
+      {
+        "type": "University",
+        "address": "IU"
+      }
+    ]
   }
 ]

@@ -3,11 +3,18 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"io"
+	"math/rand"
 	"net"
-	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
+)
+
+var (
+	userManager  *AuthManager
+	gameSessions = make(map[string]*GameSession)
+	gameMutex    sync.Mutex
 )
 
 func handleClient(conn net.Conn) {
@@ -33,93 +40,147 @@ func handleClient(conn net.Conn) {
 	// Send session key to client
 	conn.Write([]byte(fmt.Sprintf("Authenticated. Session key: %d\n", sessionKey)))
 
-	// Initialize a new game session for the user
 	gameMutex.Lock()
-	games[username] = &Game{}
-	games[username].Reset()
-	gameMutex.Unlock()
+	var session *GameSession
 
-	for {
-		message, _ := reader.ReadString('\n')
-		message = strings.TrimSpace(message)
-		msgParts := strings.SplitN(message, "_", 2)
-
-		if len(msgParts) != 2 {
-			conn.Write([]byte("Invalid message format\n"))
-			continue
+	// Look for an available session with space
+	for _, s := range gameSessions {
+		if len(s.players) < 4 { // Allow up to 4 players per session
+			s.players = append(s.players, conn)
+			session = s
+			gameMutex.Unlock()
+			broadcastMessage(session, fmt.Sprintf("Player %s joined! Players now: %d\n", username, len(session.players)))
+			break
 		}
-
-		clientKey, msgContent := msgParts[0], msgParts[1]
-		sessionKeyInt := 0
-		fmt.Sscanf(clientKey, "%d", &sessionKeyInt)
-
-		if !userManager.ValidateSession(username, sessionKeyInt) {
-			conn.Write([]byte("Invalid session key\n"))
-			continue
-		}
-
-		if strings.HasPrefix(msgContent, "DOWNLOAD:") {
-			filename := strings.TrimPrefix(msgContent, "DOWNLOAD:")
-			fmt.Println("Client requested file:", filename)
-			SendFile(conn, filename, sessionKeyInt)
-			continue
-		}
-		if strings.HasPrefix(msgContent, "GUESS:") {
-			guessStr := strings.TrimPrefix(msgContent, "GUESS:")
-			guess, err := strconv.Atoi(guessStr)
-			if err != nil {
-				conn.Write([]byte("Invalid guess format\n"))
-				continue
-			}
-
-			// Process the guess
+	}
+	if session == nil {
+		gameID := strconv.Itoa(rand.Intn(10000))
+		session = &GameSession{players: []net.Conn{conn}, turn: 0, gameStarted: false}
+		gameSessions[gameID] = session
+		gameMutex.Unlock()
+		conn.Write([]byte(fmt.Sprintf("GameID: %s\n", gameID)))
+	}
+	if len(session.players) == 1 {
+		broadcastMessage(session, "Waiting for more players...\n")
+	} else {
+		// Ask players whether to start or wait
+		for {
 			gameMutex.Lock()
-			game := games[username]
-			response, correct := game.ProcessGuess(guess)
+			if session.gameStarted {
+				gameMutex.Unlock()
+				break
+			}
 			gameMutex.Unlock()
 
-			conn.Write([]byte(fmt.Sprintf("%d_%s\n", sessionKeyInt, response)))
+			conn.Write([]byte("Type 'start' to begin the game or 'wait' to wait for more players:\n"))
+			response, _ := reader.ReadString('\n')
+			response = strings.TrimSpace(response)
+			// parts := strings.Split(response, "_")
+			// if len(parts) != 2 {
+			// 	conn.Write([]byte("Invalid format\n"))
+			// 	return
+			// }
 
-			if correct {
-				conn.Write([]byte(fmt.Sprintf("%d_Correct! You guessed in %d attempts.\n", sessionKeyInt, game.GetAttempts())))
+			// response = parts[1]
+
+			conn.Write([]byte(fmt.Sprintf("%s\n", response)))
+			if response == "start" {
 				gameMutex.Lock()
-				game.Reset()
-				gameMutex.Unlock()
+				if !session.gameStarted {
+					session.gameStarted = true
+					gameMutex.Unlock()
+					broadcastMessage(session, "Game starting!\n")
+					for _, player := range session.players {
+						go handleGame(session, player)
+					}
+				} else {
+					gameMutex.Unlock()
+				}
+				break
+			} else if response == "wait" {
+				conn.Write([]byte("Waiting for more players...\n"))
+				time.Sleep(3 * time.Second)
+				break
+			} else {
+				conn.Write([]byte("Invalid input. Type 'start' or 'wait'.\n"))
 			}
-		} else {
-			fmt.Printf("Received from %s: %s\n", username, msgContent)
-			conn.Write([]byte(fmt.Sprintf("%d_Echo: %s\n", sessionKeyInt, msgContent)))
+		}
+	}
+	// Keep the connection open
+	select {} // Keeps the function running
+}
+func handleGame(session *GameSession, conn net.Conn) {
+	for {
+		session.mu.Lock()
+		if len(session.players) == 0 {
+			session.mu.Unlock()
+			break // Exit if no players left
+		}
+
+		activePlayer := session.players[session.turn]
+		session.mu.Unlock()
+
+		// Notify the current player it's their turn
+		if activePlayer == conn {
+			conn.Write([]byte("Your turn! Enter a message:\n"))
+			reader := bufio.NewReader(conn)
+			message, err := reader.ReadString('\n')
+
+			if err != nil {
+				fmt.Println("Client disconnected:", err)
+				removePlayerFromSession(session, conn)
+				return
+			}
+
+			message = strings.TrimSpace(message)
+
+			if message == "quit" {
+				conn.Write([]byte("Goodbye!\n"))
+				removePlayerFromSession(session, conn)
+				return
+			}
+
+			// Broadcast to all players who sent the message
+			broadcastMessage(session, fmt.Sprintf("Player %d: %s\n", session.turn+1, message))
+
+			// Move to the next player's turn
+			session.mu.Lock()
+			session.turn = (session.turn + 1) % len(session.players)
+			session.mu.Unlock()
 		}
 	}
 }
 
-func SendFile(conn net.Conn, filename string, sessionKey int) {
-	file, err := os.Open(filename)
-	if err != nil {
-		conn.Write([]byte(fmt.Sprintf("%d_ERROR: File not found\n", sessionKey)))
-		return
+func broadcastMessage(session *GameSession, message string) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	for _, player := range session.players {
+		player.Write([]byte(message))
 	}
-	defer file.Close()
+}
 
-	// Notify the client that the file transfer is starting
-	conn.Write([]byte(fmt.Sprintf("%d_READY\n", sessionKey)))
+func removePlayerFromSession(session *GameSession, conn net.Conn) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
 
-	reader := bufio.NewReader(file)
-	for {
-		line, err := reader.ReadString('\n') // Read line-by-line
-		if err == io.EOF {
+	// Remove player from session
+	for i, player := range session.players {
+		if player == conn {
+			session.players = append(session.players[:i], session.players[i+1:]...)
 			break
 		}
-		if err != nil {
-			conn.Write([]byte(fmt.Sprintf("%d_ERROR: Read error\n", sessionKey)))
-			return
-		}
-
-		// Send each line prefixed with sessionKey
-		conn.Write([]byte(fmt.Sprintf("%d_%s", sessionKey, line)))
 	}
 
-	// Send EOF signal to indicate end of file transfer
-	conn.Write([]byte(fmt.Sprintf("%d_EOF\n", sessionKey)))
-	fmt.Println("File sent successfully:", filename)
+	// If session is empty, remove it
+	if len(session.players) == 0 {
+		for gameID, s := range gameSessions {
+			if s == session {
+				delete(gameSessions, gameID)
+				break
+			}
+		}
+	} else {
+		// If players are left, notify them
+		broadcastMessage(session, "A player has left. The game continues.")
+	}
 }

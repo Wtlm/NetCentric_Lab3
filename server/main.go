@@ -3,15 +3,9 @@ package main
 import (
 	"fmt"
 	"net"
-	"sync"
 )
 
 const userFile = "users.json"
-
-var games = make(map[string]*Game)
-var gameMutex sync.Mutex
-
-var userManager *AuthManager
 
 func main() {
 	var err error
