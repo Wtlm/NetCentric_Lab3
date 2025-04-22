@@ -3,24 +3,10 @@ package main
 import (
 	"fmt"
 	"net"
-	"sync"
 )
-
-const userFile = "users.json"
-
-var games = make(map[string]*Game)
-var gameMutex sync.Mutex
-
-var userManager *AuthManager
 
 func main() {
 	var err error
-	userManager, err = NewAuthManager(userFile)
-	if err != nil {
-		fmt.Println("Failed to load users:", err)
-		return
-	}
-
 	listener, err := net.Listen("tcp", ":8080")
 	if err != nil {
 		fmt.Println("Error starting server:", err)
