@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strings"
 	"path/filepath"
-
+	"strings"
 )
 
-func handleClient(conn net.Conn) {	
+func handleClient(conn net.Conn) {
 	defer conn.Close()
 	buffer := make([]byte, 1024)
 	n, _ := conn.Read(buffer)
@@ -42,6 +41,8 @@ func handleClient(conn net.Conn) {
 func getContentType(file string) string {
 	ext := filepath.Ext(file)
 	switch ext {
+	case ".html":
+		return "text/html"
 	case ".jpg", ".jpeg":
 		return "image/jpeg"
 	case ".png":
@@ -54,4 +55,3 @@ func getContentType(file string) string {
 		return "application/octet-stream"
 	}
 }
-
